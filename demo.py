@@ -20,9 +20,74 @@ The known commands are:
     dcc -- Let the bot invite you to a DCC CHAT connection.
 """
 
+import random
+from typing import Dict, List, Optional, Tuple
+
 import irc.bot
 import irc.strings
+import lyricsgenius
 from irc.client import ip_numstr_to_quad, ip_quad_to_numstr
+
+genius = lyricsgenius.Genius("yG-J-SmcufDh3ftiSz8UA7aMfiRg_dztK0PVileWreO0ceCNa6KJqTYSdwSTgzkX")
+
+
+SONGS: List[Dict] = []
+
+
+"""
+We want:
+    - artist name
+    - artist description
+    - artist image
+    - song name
+    - song release date
+    - lyrics
+
+get artist id from song
+get artist from genius.get_artist(id)
+"""
+
+
+class SongArtist(object):
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+
+
+def song_artist_from_utter(utter: str) -> Tuple[str, Optional[SongArtist]]:
+    """Finds song with the given utterance, returns random two lines with that utterance."""
+    utter = utter.lower()
+    try:
+        song = genius.search_genius(utter)['hits'][0]
+        song_id = song['result']['api_path'].split('/')[-1]
+        song = genius.get_song(song_id)['song']
+        lyrics = genius._scrape_song_lyrics_from_url(song['url']).lower().split('\n')
+        artist_id = song['album']['artist']['id']
+        artist = genius.get_artist(artist_id)['artist']
+
+        info = {
+            'artist_name': song['album']['artist']['name'],
+            'artist_description': artist['description']['plain'],
+            'artist_image': artist['image_url'],
+            'song_name': song['title'],
+            'song_release_date': song['release_date'],
+            'song_lyrics': lyrics
+        }
+
+        sa = SongArtist(**info)
+
+        match_lines = []
+        for i, line in enumerate(lyrics[:-1]):
+            if utter in line:
+                match_lines.append(' '.join([line, lyrics[i+1]]))
+
+        return random.choice(match_lines), SongArtist(**info)
+    except:
+        return "That's a pretty unique thing to say, I couldn't even think of any related songs!", None
+
+
+lyrics = lyrics_from_utter("How you pull up, Baby?")
+print(lyrics)
 
 
 class TestBot(irc.bot.SingleServerIRCBot):
