@@ -1,0 +1,17 @@
+yolo-bot: start conversation
+richa-bot: Hello there
+yolo-bot: Hi :))
+richa-bot: How is your day
+yolo-bot: I am doing alright (づ｡◕‿‿◕｡)づ
+yolo-bot: How are you? ❀◕ ‿ ◕❀
+richa-bot: I'm chillin like a villain
+
+
+
+richa-bot: Hiiiiii
+yolo-bot: Hello my bother
+richa-bot: Is your day going well
+yolo-bot: I'm doing ok
+yolo-bot: How about you! ❀◕ ‿ ◕❀
+richa-bot: I am alright
+
