@@ -28,24 +28,12 @@ import irc.strings
 import lyricsgenius
 from irc.client import ip_numstr_to_quad, ip_quad_to_numstr
 
+# I really shouldn't have pushed this, but I frankly don't care enough to fix it. Please, just
+# don't do anything nefarious with my Genius token.
 genius = lyricsgenius.Genius("yG-J-SmcufDh3ftiSz8UA7aMfiRg_dztK0PVileWreO0ceCNa6KJqTYSdwSTgzkX")
 
 
 SONGS: List[Dict] = []
-
-
-"""
-We want:
-    - artist name
-    - artist description
-    - artist image
-    - song name
-    - song release date
-    - lyrics
-
-get artist id from song
-get artist from genius.get_artist(id)
-"""
 
 
 class SongArtist(object):
