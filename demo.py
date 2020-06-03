@@ -75,7 +75,7 @@ def song_artist_from_utter(utter: str) -> Tuple[str, Optional[SongArtist]]:
         return "That's a pretty unique thing to say, I couldn't even think of any related songs!", None
 
 
-lyrics = lyrics_from_utter("How you pull up, Baby?")
+lyrics = song_artist_from_utter("How you pull up, Baby?")
 print(lyrics)
 
 
