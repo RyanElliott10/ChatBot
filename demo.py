@@ -55,7 +55,8 @@ class SongArtist(object):
 
 
 def song_artist_from_utter(utter: str) -> Tuple[str, Optional[SongArtist]]:
-    """Finds song with the given utterance, returns random two lines with that utterance."""
+    """Finds song with the given utterance, returns random two lines with that utterance along with
+    the associated artist and song data."""
     utter = utter.lower()
     try:
         song = genius.search_genius(utter)['hits'][0]
