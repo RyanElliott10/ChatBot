@@ -27,6 +27,17 @@ import irc.bot
 import irc.strings
 import lyricsgenius
 from irc.client import ip_numstr_to_quad, ip_quad_to_numstr
+import requests
+import time
+import random
+import threading
+import nltk
+from nltk.corpus import wordnet
+from nltk.corpus import wordnet as wn
+from fuzzywuzzy import fuzz
+import spacy
+from itertools import combinations 
+nlp = spacy.load("en_core_web_sm")
 
 # I really shouldn't have pushed this, but I frankly don't care enough to fix it. Please, just
 # don't do anything nefarious with my Genius token.
@@ -68,19 +79,37 @@ def song_artist_from_utter(utter: str) -> Tuple[str, Optional[SongArtist]]:
             if utter in line:
                 match_lines.append(' '.join([line, lyrics[i+1]]))
 
-        return random.choice(match_lines), SongArtist(**info)
+        obj = SongArtist(**info)
+        SONGS.append(obj)
+        return random.choice(match_lines), obj
     except:
         return "That's a pretty unique thing to say, I couldn't even think of any related songs!", None
 
 
 lyrics, songartist = song_artist_from_utter("How you pull up, Baby?")
-print(songartist.song_lyrics)
+print(getattr(songartist, "song_lyrics"))
 
 
 class TestBot(irc.bot.SingleServerIRCBot):
     def __init__(self, channel, nickname, server, port=6667):
         irc.bot.SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
         self.channel = channel
+        self.friends = ['richa-bot','bichabot_','yolo-bot', 'Foaad'] # names of bots to initiate conversation with
+        self.conversation_state = {'state_1':0,'state_2':0,'initiating_conv':False,'friend':None} # stores all state variables
+        """
+        conversation_responses args:
+        - state_1: start conversation phrase, or first response phrase
+        - state_2: response to something like "how are you doing"
+        - no_reponse: reponse to the other bot not saying anything
+        - second_response: response for this bot getting frustrated
+        - inquiry_1: first question (if this bot started conversation)
+        - inquiry_2: first question (if this bot DID NOT start conversation)
+        """
+        syns = []
+        for i in wn.synsets('happy'):
+            syns = list(set(syns + (i.lemma_names())))
+        self.conversation_responses = {'state_1':["hello!!! ✿◕ ‿ ◕✿","Hii!!!", "Hi :))","Hello my bother", "(✿◠‿◠) hi!!"],'state_2':["I'm " + random.choice(syns) + "(✿◠‿◠)",  "I'm " + random.choice(syns) + "(づ｡◕‿‿◕｡)づ"],'no_response':["bye! ≧◡≦", "bye :(","see you :(", "ill miss you :("],'second_response':["Ummm are you there? ( ͡° ͜ʖ ͡°)", "are you going to respond? ( ͡° ͜ʖ ͡°)", "you going to talk? ( ͡° ͜ʖ ͡°)", "you going to respond or something? ( ͡° ͜ʖ ͡°)"], 'inquiry_1':['How is your day going ◕‿◕', 'How is your day ◕‿◕', "Is your day going well ◕‿◕"], 'inquiry_2':['How about you! ❀◕ ‿ ◕❀', 'How are you? ❀◕ ‿ ◕❀', "How r you doing ❀◕ ‿ ◕❀", "How about you bot!! ❀◕ ‿ ◕❀", "How about you!!!!!!!"]}
+        self.timer = None # to hold the threaded timer
 
     def on_nicknameinuse(self, c, e):
         c.nick(c.get_nickname() + "_")
@@ -114,11 +143,88 @@ class TestBot(irc.bot.SingleServerIRCBot):
                 return
             self.dcc_connect(address, port)
 
+    # set up scheduler to handle if the user doesn't respond, and there is frustration:
+    def scheduled_event_frustrated(self):
+        c = self.connection
+        response = random.choice(self.conversation_responses['second_response'])
+        time.sleep(random.random())
+        c.privmsg(self.channel,response)
+        t = threading.Timer(10,self.scheduled_event_no_reponse) # start timer for no_response
+        t.start()
+        self.timer = t
+
+    # set up the scheduler to handle if the user doesn't respond, and convo is over:
+    def scheduled_event_no_reponse(self):
+        c = self.connection
+        response = random.choice(self.conversation_responses['no_response'])
+        time.sleep(random.random())
+        c.privmsg(self.channel,response)
+        self.conversation_state = {'state_1':0,'state_2':0,'initiating_conv':False,'friend':None}
+        self.timer = None
+
+    def intiate_conversation(self):
+        """ Initiate the conversation. Doesn't do anything if friends not in channel
+        """
+        self.conversation_state['initiating_conv'] = True
+        all_members = []
+        for chname,chobj in self.channels.items():
+            all_members = sorted(chobj.users())
+
+        friend_chosen = None
+        available_friends = []
+        for member in all_members:
+            if member in self.friends:
+                available_friends.append(str(member))
+
+        if len(available_friends) != 0:
+            friend_chosen = random.choice(available_friends)
+        
+        self.conversation_state['friend'] = friend_chosen
+
+    # handles starting the conversation with friend bot
+    def start_conversation(self):
+        c = self.channel
+        self.intiate_conversation()
+        nick = self.conversation_state['friend'] # person who this bot is talking to
+        print("started conversation",nick)
+        if nick != None: # only talk if friend is in the chanel
+            start = random.choice(self.conversation_responses['state_1'])
+            time.sleep(1+random.random())
+            c.privmsg(self.channel, nick+": "+start)
+            self.conversation_state["state_1"] = 1 # starting conversation
+            t = threading.Timer(20, self.scheduled_event_frustrated)
+            self.timer = t
+            t.start()
+
     def do_command(self, e, cmd):
-        nick = e.source.nick
+        cmd = cmd.lower()
+        nick = e.source.nick # this is the nickname of the bot talking to this bot
         c = self.connection
 
-        if cmd == "disconnect":
+        t = threading.Timer(10, self.scheduled_event_frustrated)
+        self.timer = t
+
+        # to handle phase 2 in initiate conversation sequence
+        if ("hello" in cmd or "hi" in cmd):
+            self.timer.cancel()
+            inquiry = random.choice(self.conversation_responses["state_1"])
+            time.sleep(1+random.random()*2)
+            c.privmsg(self.channel, nick+": "+inquiry)
+            t = threading.Timer(20, self.scheduled_event_frustrated)
+            self.timer = t
+            t.start()
+
+
+        # to handle phase 3 in initiate conversation sequence
+        elif "you" in cmd:
+            self.timer.cancel()
+            response = random.choice(self.conversation_responses["state_2"])
+            time.sleep(1+random.random()*2)
+            c.privmsg(self.channel, nick+": "+response)
+            self.timer = None
+
+
+        elif cmd == "disconnect":
             self.disconnect()
         elif cmd == "die":
             self.die()
@@ -146,7 +252,49 @@ class TestBot(irc.bot.SingleServerIRCBot):
             # Foaad: change this
             c.privmsg(self.channel, "I can answer questions like this: ....")
         else:
-            c.notice(nick, "Not understood: " + cmd)
+
+            matches = {
+                'artist_name': ['Who sings this?', 'What artist is this?'],
+                'song_name': ['What\'s the name of this song?', 'What is this song called?'],
+                'song_release_date': ['When did this song come out?', 'When was this song released?'],
+                'artist_description': ['Tell me about this artist.', 'Who is this artist?']
+            }
+            best_match = 0
+            key: String = None
+            for k, v in matches.items():
+                avg_match = 0
+                for question in v:
+                    avg_match += fuzz.ratio(cmd, question)
+                avg_match = avg_match / len(v)
+                if (avg_match > best_match):
+                    best_match = avg_match
+                    key = k
+
+
+            if best_match > 50 and len(SONGS) > 0:
+                c.privmsg(self.channel, getattr(SONGS[-1], key))
+
+            else:
+                doc = nlp(cmd)
+                search = [i.text for i in doc if (i.is_stop == False and i.pos != 'NUM' and i.pos != "SYM" and i.is_punct == False)]
+                all_combos = []
+                [all_combos.append(' '.join(i)) for i in list(combinations(search, 2))]
+                [all_combos.append(' '.join(i[::-1])) for i in list(combinations(search, 2))]
+                all_combos += search
+
+                print(all_combos)
+
+                lyrics = obj = None
+
+                for i in all_combos:
+                    lyrics, obj = song_artist_from_utter(i)
+                    print(lyrics, obj)
+                    if (obj != None):
+                        break
+
+                c.privmsg(self.channel, lyrics)
+
+                   
 
 
 def main():
