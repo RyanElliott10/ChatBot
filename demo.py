@@ -37,7 +37,9 @@ from nltk.corpus import wordnet as wn
 from fuzzywuzzy import fuzz
 import spacy
 from itertools import combinations 
+import re
 nlp = spacy.load("en_core_web_sm")
+import pprint
 
 # I really shouldn't have pushed this, but I frankly don't care enough to fix it. Please, just
 # don't do anything nefarious with my Genius token.
@@ -58,8 +60,20 @@ def song_artist_from_utter(utter: str) -> Tuple[str, Optional[SongArtist]]:
     the associated artist and song data."""
     utter = utter.lower()
     try:
-        song = genius.search_genius(utter)['hits'][0]
-        song_id = song['result']['api_path'].split('/')[-1]
+
+        trial = genius.search_genius_web(utter)
+        for i in trial['sections']:
+            for a in i['hits']:
+                if (a['index'] == "lyric"):
+                    match_lyrics = a['highlights'][0]['value']
+                    song = a['result']
+                    if(match_lyrics != None):
+                        break
+
+
+        
+        #song = genius.search_genius(utter)['hits'][0]
+        song_id = song['api_path'].split('/')[-1]
         song = genius.get_song(song_id)['song']
         lyrics = genius._scrape_song_lyrics_from_url(song['url']).lower().split('\n')
         artist_id = song['album']['artist']['id']
@@ -73,21 +87,15 @@ def song_artist_from_utter(utter: str) -> Tuple[str, Optional[SongArtist]]:
             'song_release_date': song['release_date'],
             'song_lyrics': lyrics
         }
-
-        match_lines = []
-        for i, line in enumerate(lyrics[:-1]):
-            if utter in line:
-                match_lines.append(' '.join([line, lyrics[i+1]]))
+        print(match_lyrics)
+        match_lines = " / ".join(match_lyrics.split("\n")[:-1])
 
         obj = SongArtist(**info)
         SONGS.append(obj)
-        return random.choice(match_lines), obj
+
+        return match_lines, obj
     except:
         return "That's a pretty unique thing to say, I couldn't even think of any related songs!", None
-
-
-lyrics, songartist = song_artist_from_utter("How you pull up, Baby?")
-print(getattr(songartist, "song_lyrics"))
 
 
 class TestBot(irc.bot.SingleServerIRCBot):
@@ -198,6 +206,10 @@ class TestBot(irc.bot.SingleServerIRCBot):
 
     def do_command(self, e, cmd):
         cmd = cmd.lower()
+        doc = nlp(cmd)
+        unigrams = [i.text.lower() for i in doc if (i.pos != 'NUM' and i.pos != "SYM" and i.is_punct == False and len(i.text) > 1)]
+
+        
         nick = e.source.nick # this is the nickname of the bot talking to this bot
         c = self.connection
 
@@ -205,7 +217,7 @@ class TestBot(irc.bot.SingleServerIRCBot):
         self.timer = t
 
         # to handle phase 2 in initiate conversation sequence
-        if ("hello" in cmd or "hi" in cmd):
+        if ("hello" in unigrams or "hi" in unigrams):
             self.timer.cancel()
             inquiry = random.choice(self.conversation_responses["state_1"])
             time.sleep(1+random.random()*2)
@@ -216,7 +228,7 @@ class TestBot(irc.bot.SingleServerIRCBot):
 
 
         # to handle phase 3 in initiate conversation sequence
-        elif "you" in cmd:
+        elif "you" in unigrams:
             self.timer.cancel()
             response = random.choice(self.conversation_responses["state_2"])
             time.sleep(1+random.random()*2)
@@ -254,9 +266,9 @@ class TestBot(irc.bot.SingleServerIRCBot):
         else:
 
             matches = {
-                'artist_name': ['Who sings this?', 'What artist is this?'],
-                'song_name': ['What\'s the name of this song?', 'What is this song called?'],
-                'song_release_date': ['When did this song come out?', 'When was this song released?'],
+                'artist_name': ['Who sings this?', 'What artist is this?', 'Who sang that?', 'Who sings that?', 'Who wrote it?', 'Who wrote this song?'],
+                'song_name': ['What\'s the name of this song?', 'What is this song called?', 'What is that song?'],
+                'song_release_date': ['When did this song come out?', 'When was this song released?', 'What year did it come out?'],
                 'artist_description': ['Tell me about this artist.', 'Who is this artist?']
             }
             best_match = 0
@@ -271,28 +283,54 @@ class TestBot(irc.bot.SingleServerIRCBot):
                     key = k
 
 
-            if best_match > 50 and len(SONGS) > 0:
-                c.privmsg(self.channel, getattr(SONGS[-1], key))
+            if best_match >= 60 and len(SONGS) > 0:
+                print("chosen:", key, best_match)
+                c.privmsg(self.channel, getattr(SONGS[-1], key) +"!")
 
             else:
-                doc = nlp(cmd)
-                search = [i.text for i in doc if (i.is_stop == False and i.pos != 'NUM' and i.pos != "SYM" and i.is_punct == False)]
-                all_combos = []
-                [all_combos.append(' '.join(i)) for i in list(combinations(search, 2))]
-                [all_combos.append(' '.join(i[::-1])) for i in list(combinations(search, 2))]
-                all_combos += search
 
-                print(all_combos)
+                matches = {
+                'artist_name': ['Who sang the last song?', 'What artist sang the last song', 'Who was the last song by?'],
+                'song_name': ['What was the name of the last song', 'What was the last song called?', 'What was the last song?'],
+                'song_release_date': ['When did the last song come out?', 'When was the last song released?', 'What year did the last song come out?'],
+                'artist_description': ['Tell me about the previous artist.', 'Who was the artist? who sang the previous song']
+                }
+                best_match = 0
+                key: String = None
+                for k, v in matches.items():
+                    avg_match = 0
+                    for question in v:
+                        avg_match += fuzz.ratio(cmd, question)
+                    avg_match = avg_match / len(v)
+                    if (avg_match > best_match):
+                        best_match = avg_match
+                        key = k
 
-                lyrics = obj = None
 
-                for i in all_combos:
-                    lyrics, obj = song_artist_from_utter(i)
-                    print(lyrics, obj)
-                    if (obj != None):
-                        break
+                if best_match >= 60 and len(SONGS) > 1:
+                    print("chosen:", key, best_match)
+                    c.privmsg(self.channel, getattr(SONGS[-2], key) +"!")
 
-                c.privmsg(self.channel, lyrics)
+                else:
+                    
+                    #unigrams = [i.text.lower() for i in doc if (i.is_stop == False and i.pos != 'NUM' and i.pos != "SYM" and i.is_punct == False)]
+                    all_combos = []
+                    bigrams = [' '.join(i) for i in list(nltk.bigrams(unigrams))]
+                    all_combos = bigrams + unigrams
+
+                    print(all_combos)
+
+                    lyrics = obj = None
+
+                    for i in all_combos:
+                        lyrics, obj = song_artist_from_utter(i)
+                        print(lyrics, obj)
+                        if (obj != None):
+                            break
+
+                    print(lyrics)
+                    lyrics = re.sub("[\(\[].*?[\)\]]", "", lyrics)
+                    c.privmsg(self.channel, lyrics)
 
                    
 
